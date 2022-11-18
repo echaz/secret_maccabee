@@ -1,10 +1,11 @@
-from argparse import ArgumentParser
+#!/usr/bin/env python3
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from copy import copy
 from csv import reader
 from io import StringIO
 from os import getenv
 from random import shuffle
-from smtplib import SMTP_SSL
+from smtplib import SMTP
 from traceback import print_exc
 
 from googleapiclient.discovery import build
@@ -31,23 +32,26 @@ class Participant:
     def __repr__(self):
         return self.name
 
-def send_email(to_email, secret_maccabee_person):
+def send_email(gifter, giftee):
     from_line = f"From: {gmail_user}"
-    to_line = f"To: {to_email}"
+    to_line = f"To: {gifter.email}"
     subject_line = 'Subject: Your Secret Maccabee information'
     blank_line = '\n'
-    body = f"Your Secret Macabee is: {secret_maccabee_person.name}"
-    if not secret_maccabee_person.in_person:
-        body += f"\nThis year they are not in person, their mailing address is:\n{secret_maccabee_person.address}"
+    body = f"Hi {gifter.name}!  Your Secret Macabee person is: {giftee.name}"
+    if not giftee.in_person:
+        body += f"\nThis year they are not in person, their mailing address is:\n{giftee.address}"
+
+    body += '\nIf you have any problems questions, please let me know.'
 
     email_text = '\n'.join([from_line, to_line, subject_line, blank_line, body])
 
+    #  TODO: I should be able to keep the connection open
     try:
-        server = SMTP_SSL('smtp.gmail.com', 465)
-        server.ehlo()
+        server = SMTP('smtp.gmail.com', 587)
+        server.starttls()
         server.login(gmail_user, gmail_password)
-        server.sendmail(gmail_user, to_email, email_text)
-        server.close()
+        server.sendmail(gmail_user, gifter.email, email_text)
+        server.quit()
 
         print ('Email sent!')
     except:
@@ -124,20 +128,34 @@ def shuffle_groups(group_1, group_2):
 # since this guy is going to send emails, I'm going to not call main until I either have solid tests or have run this for a few years.
 # consider this an example of how I'm calling this from ipython
 if __name__ == '__main__':
-    parser = ArgumentParser()
-    parser.add_argument("--dry-run", type=bool, required=False, default=True,
+    parser = ArgumentParser(description=f'''
+    Secret Maccabee Shuffler and email sender.  Required environment variables:
+    GOOGLE_USER - the username of the email sender
+    GOOGLE_PASSWORD - password
+    GOOGLE_SHEET_ID - the id of the secret maccabee google sheet
+    GOOGLE_OAUTH_CREDS - service account credentials (they should probably replace the user/pass)
+    ''',
+    formatter_class=RawDescriptionHelpFormatter)
+    parser.add_argument("--live", required=False, default=False, action='store_true',
                         help="build a little, test a little, learn alot")
-    parser.add_argument("--pause", type=bool, required=False, default=True,
+    parser.add_argument("--nopause", required=False, default=False, action='store_true',
                         help='human in the loop incase mistakes are made')
-    gifters, recipients = parse_input()
-
     args = parser.parse_args()
+    print(f"{args.__dict__}")
+
     groups = parse_input()
     gifters, recipients = shuffle_groups(*groups)
 
-    if args.dry_run:
+    for person_index in range(len(gifters)):
+        print (f"# {gifters[person_index]} gifts to {recipients[person_index]}")
+        print(f"send_email('{gifters[person_index]}','{recipients[person_index]}')")
+
+    if args.live:
+        if not args.nopause:
+            input('Pausing for confirmation')
+
         for person_index in range(len(gifters)):
-            print (f"# {gifters[person_index].name} gifts to {recipients[person_index]}")
-            print(f"send_email('{gifters[person_index].email}','{recipients[person_index]}')")
+            send_email(gifters[person_index], recipients[person_index])
+
     else:
-        raise Exception(f"pause is {args.pause}")
+        print("this was just a dry run!")
