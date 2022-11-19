@@ -11,12 +11,13 @@ from traceback import print_exc
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 
+# TODO: for 2023, add last years name so we dont have dupes!
 
 # If this is family looking at this script, "oh hai."
 # If you found this while you were interviewing me, this is just for kicks
 
-# I dont have time to send personalized emails, plus I would screw it up
-# TODO: I think I should be able to use the oauth creds to send email
+# Note, as of 2022, I need to get specialized api keys to use the smtp library, and needed a good deal
+# of googling to make it happen
 gmail_user = getenv("GOOGLE_USER")
 gmail_password = getenv("GOOGLE_PASSWORD")
 google_sheet_id = getenv("GOOGLE_SHEET_ID")
