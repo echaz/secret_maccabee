@@ -5,23 +5,21 @@ from csv import reader
 from io import StringIO
 from os import getenv
 from random import shuffle
-from smtplib import SMTP
+from smtplib import SMTP_SSL
 from traceback import print_exc
 
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 
-# TODO: for 2023, add last years name so we dont have dupes!
-
 # If this is family looking at this script, "oh hai."
 # If you found this while you were interviewing me, this is just for kicks
-
-# Note, as of 2022, I need to get specialized api keys to use the smtp library, and needed a good deal
-# of googling to make it happen
 gmail_user = getenv("GOOGLE_USER")
 gmail_password = getenv("GOOGLE_PASSWORD")
 google_sheet_id = getenv("GOOGLE_SHEET_ID")
-google_oauth_file = getenv("GOOGLE_OAUTH_CREDS")
+google_oauth_file = getenv("GOOGLE_OAUTH_CREDS", './google_oauth.json')
+
+if gmail_user is None or gmail_password is None or google_sheet_id is None or google_oauth_file is None:
+    raise Exception("check your environmental variables and try again")
 
 class Participant:
     def __init__(self, name, email, in_person, physical_address):
@@ -46,10 +44,9 @@ def send_email(gifter, giftee):
 
     email_text = '\n'.join([from_line, to_line, subject_line, blank_line, body])
 
-    #  TODO: I should be able to keep the connection open
     try:
-        server = SMTP('smtp.gmail.com', 587)
-        server.starttls()
+        server = SMTP_SSL('smtp.gmail.com', 465)
+        server.ehlo()
         server.login(gmail_user, gmail_password)
         server.sendmail(gmail_user, gifter.email, email_text)
         server.quit()
@@ -108,9 +105,10 @@ def shuffle_groups(group_1, group_2):
 
     gifters = copy(group_1)
     gifters.extend(group_2)
-    valid = False
 
-    for _ in range(100):
+    for index in range(1000):
+        valid = True
+        print(f'testing index {index}')
         shuffle(group_1)
         shuffle(group_2)
 
@@ -119,15 +117,17 @@ def shuffle_groups(group_1, group_2):
 
         for person_index in range(len(gifters)):
             if gifters[person_index].name == recipients[person_index].name:
-                continue
-            valid = True
+                print(f"collision in {gifters[person_index].name}")
+                valid = False
+                break
+
+        if valid:
             break
+
     if not valid:
         raise Exception("Unable to find a matching user set")
     return gifters, recipients
 
-# since this guy is going to send emails, I'm going to not call main until I either have solid tests or have run this for a few years.
-# consider this an example of how I'm calling this from ipython
 if __name__ == '__main__':
     parser = ArgumentParser(description=f'''
     Secret Maccabee Shuffler and email sender.  Required environment variables:
@@ -149,7 +149,7 @@ if __name__ == '__main__':
 
     for person_index in range(len(gifters)):
         print (f"# {gifters[person_index]} gifts to {recipients[person_index]}")
-        print(f"send_email('{gifters[person_index]}','{recipients[person_index]}')")
+        # print(f"send_email('{gifters[person_index]}','{recipients[person_index]}')")
 
     if args.live:
         if not args.nopause:
@@ -160,3 +160,4 @@ if __name__ == '__main__':
 
     else:
         print("this was just a dry run!")
+
