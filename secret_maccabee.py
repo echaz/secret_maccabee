@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from copy import copy
-from csv import reader
+from copy import deepcopy
+from csv import DictReader
 from io import StringIO
 from os import getenv
 from random import shuffle
 from smtplib import SMTP_SSL
 from traceback import print_exc
+from types import SimpleNamespace
 
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
@@ -21,24 +22,14 @@ google_oauth_file = getenv("GOOGLE_OAUTH_CREDS", './google_oauth.json')
 if gmail_user is None or gmail_password is None or google_sheet_id is None or google_oauth_file is None:
     raise Exception("check your environmental variables and try again")
 
-class Participant:
-    def __init__(self, name, email, in_person, physical_address):
-        self.name = name
-        self.email = email
-        self.in_person = in_person
-        self.physical_address = physical_address
-
-    def __repr__(self):
-        return self.name
-
 def send_email(gifter, giftee):
     from_line = f"From: {gmail_user}"
-    to_line = f"To: {gifter.email}"
+    to_line = f"To: {gifter.Email}"
     subject_line = 'Subject: Your Secret Maccabee information'
     blank_line = '\n'
-    body = f"Hi {gifter.name}!  Your Secret Macabee person is: {giftee.name}"
-    if not giftee.in_person:
-        body += f"\nThis year they are not in person, their mailing address is:\n{giftee.address}"
+    body = f"Hi {gifter.Name}!  Your Secret Macabee person is: {giftee.Name}"
+    if not giftee.Attending:
+        body += f"\nThis year they are not in person, their mailing address is:\n{giftee.Address}"
 
     body += '\nIf you have any problems questions, please let me know.'
 
@@ -48,7 +39,7 @@ def send_email(gifter, giftee):
         server = SMTP_SSL('smtp.gmail.com', 465)
         server.ehlo()
         server.login(gmail_user, gmail_password)
-        server.sendmail(gmail_user, gifter.email, email_text)
+        server.sendmail(gmail_user, gifter.Email, email_text)
         server.quit()
 
         print ('Email sent!')
@@ -66,67 +57,47 @@ def download_sheet_as_csv(drive_file_id=google_sheet_id, creds=google_oauth_file
 
 def parse_input():
     csv_string = download_sheet_as_csv()
-
     buff = StringIO(csv_string)
+    persons = []
 
-    csv_reader = reader(buff)
-    headers = next(csv_reader)
-    header_row = ['Name', 'email address', 'Will attend this year', 'Participating', 'Bender?', 'Address']
+    headers = ['Index', 'Name', 'Email', 'Attending', 'Participating', 'Address', 'Exclusions']
+    reader = DictReader(buff, fieldnames=headers)
 
     # header validation:
     for index, col in enumerate(headers):
-        assert col.strip().lower() == header_row[index].strip().lower()
-
-    print('the file seems valid')
-
-    group_1_list = []
-    group_2_list = []
-    for row in csv_reader:
-        participating = row[3]
-
-        if participating.lower() == "yes":
-            # name, email, in_person, physical_address
-            person = Participant(row[0], row[1], row[2], row[5])
-            group_val = row[4]
-            group_1 = group_val.strip().lower() == 'true'
-
-            if group_1:
-                group_1_list.append(person)
-            else:
-                group_2_list.append(person)
-
-    return group_1_list, group_2_list
+        assert col.strip().lower() == headers[index].strip().lower()
 
 
-def shuffle_groups(group_1, group_2):
-    # shuffle the groups, so we can do index matching:
-    shuffle(group_1)
-    shuffle(group_2)
+    for row in list(reader)[1:]:
+        print(row)
+        row_object = SimpleNamespace(**row)
+        if row_object.Participating == 'YES':
+            row_object.Index = int(row_object.Index)
+            row_object.Exclusions = [int(val) for val in row_object.Exclusions.split(',')]
+            row_object.Exclusions.append(row_object.Index)
+            persons.append(row_object)
+    return persons
 
-    gifters = copy(group_1)
-    gifters.extend(group_2)
+def shuffle_groups(persons: list[SimpleNamespace]):
+    for _ in range(1000):
+        print(f"\niterating on index {_}")
+        receivers = deepcopy(persons)
+        givers = deepcopy(persons)
+        shuffle(receivers)
+        shuffle(givers)
 
-    for index in range(1000):
-        valid = True
-        print(f'testing index {index}')
-        shuffle(group_1)
-        shuffle(group_2)
+        random_pairs = tuple(zip(receivers, givers))
 
-        recipients = copy(group_2)
-        recipients.extend(group_1)
-
-        for person_index in range(len(gifters)):
-            if gifters[person_index].name == recipients[person_index].name:
-                print(f"collision in {gifters[person_index].name}")
-                valid = False
+        # Check every pair: not gifting to themselves and not in exclusion
+        all_good = True
+        for giver, receiver in random_pairs:
+            print(f"giver: {giver.Name}, exclusions: {giver.Exclusions}, receiver: {receiver.Name}, {receiver.Index}")
+            if receiver.Index in giver.Exclusions:
+                all_good = False
                 break
 
-        if valid:
-            break
-
-    if not valid:
-        raise Exception("Unable to find a matching user set")
-    return gifters, recipients
+        if all_good:
+            return random_pairs
 
 if __name__ == '__main__':
     parser = ArgumentParser(description=f'''
@@ -144,19 +115,18 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(f"{args.__dict__}")
 
-    groups = parse_input()
-    gifters, recipients = shuffle_groups(*groups)
+    persons = parse_input()
+    random_pairs = shuffle_groups(persons)
 
-    for person_index in range(len(gifters)):
-        print (f"# {gifters[person_index]} gifts to {recipients[person_index]}")
-        # print(f"send_email('{gifters[person_index]}','{recipients[person_index]}')")
+    # for giver, receiver in random_pairs:
+    #    print (f"# {giver.Name} gifts to {receiver.Name}")
 
     if args.live:
         if not args.nopause:
             input('Pausing for confirmation')
 
-        for person_index in range(len(gifters)):
-            send_email(gifters[person_index], recipients[person_index])
+        for giver, receiver in random_pairs:
+            send_email(giver, receiver)
 
     else:
         print("this was just a dry run!")
