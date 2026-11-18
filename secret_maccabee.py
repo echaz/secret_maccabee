@@ -27,7 +27,7 @@ def send_email(gifter, giftee):
     to_line = f"To: {gifter.Email}"
     subject_line = 'Subject: Your Secret Maccabee information'
     blank_line = '\n'
-    body = f"Hi {gifter.Name}!  Your Secret Macabee person is: {giftee.Name}"
+    body = f"Hi {gifter.Name}!  Your Secret Maccabee person is: {giftee.Name}"
     if not giftee.Attending:
         body += f"\nThis year they are not in person, their mailing address is:\n{giftee.Address}"
 
@@ -62,19 +62,29 @@ def parse_input():
 
     headers = ['Index', 'Name', 'Email', 'Attending', 'Participating', 'Address', 'Exclusions']
     reader = DictReader(buff, fieldnames=headers)
+    rows = list(reader)
 
     # header validation:
-    for index, col in enumerate(headers):
-        assert col.strip().lower() == headers[index].strip().lower()
+    for col in headers:
+        sheet_col = rows[0][col] or ''
+        if sheet_col.strip().lower() != col.lower():
+            raise Exception(f"expected the {col} column, but the sheet has {sheet_col!r} there")
 
 
-    for row in list(reader)[1:]:
+    for row in rows[1:]:
         print(row)
         row_object = SimpleNamespace(**row)
         if row_object.Participating == 'YES':
             row_object.Index = int(row_object.Index)
             row_object.Exclusions = [int(val) for val in row_object.Exclusions.split(',')]
             row_object.Exclusions.append(row_object.Index)
+            attending = row_object.Attending.strip().upper()
+            if attending == 'YES':
+                row_object.Attending = True
+            elif attending == 'NO':
+                row_object.Attending = False
+            else:
+                raise Exception(f"{row_object.Name} has Attending {attending!r}, expected YES or NO")
             persons.append(row_object)
     return persons
 
@@ -99,6 +109,8 @@ def shuffle_groups(persons: list[SimpleNamespace]):
         if all_good:
             return random_pairs
 
+    raise Exception("no valid draw after 1000 tries.  check the exclusions")
+
 if __name__ == '__main__':
     parser = ArgumentParser(description=f'''
     Secret Maccabee Shuffler and email sender.  Required environment variables:
@@ -108,12 +120,7 @@ if __name__ == '__main__':
     GOOGLE_OAUTH_CREDS - service account credentials (they should probably replace the user/pass)
     ''',
     formatter_class=RawDescriptionHelpFormatter)
-    parser.add_argument("--live", required=False, default=False, action='store_true',
-                        help="build a little, test a little, learn alot")
-    parser.add_argument("--nopause", required=False, default=False, action='store_true',
-                        help='human in the loop incase mistakes are made')
-    args = parser.parse_args()
-    print(f"{args.__dict__}")
+    parser.parse_args()
 
     persons = parse_input()
     random_pairs = shuffle_groups(persons)
@@ -121,13 +128,8 @@ if __name__ == '__main__':
     # for giver, receiver in random_pairs:
     #    print (f"# {giver.Name} gifts to {receiver.Name}")
 
-    if args.live:
-        if not args.nopause:
-            input('Pausing for confirmation')
+    input('Pausing for confirmation')
 
-        for giver, receiver in random_pairs:
-            send_email(giver, receiver)
-
-    else:
-        print("this was just a dry run!")
+    for giver, receiver in random_pairs:
+        send_email(giver, receiver)
 
